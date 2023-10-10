@@ -43,6 +43,7 @@ def computeLAVD(
     lavd_vec = np.zeros((n_particles))    # LAVD
     vort = np.zeros((n_particles,n_elem))        # vorticity vector
     vort_dev = np.zeros((n_particles,n_elem))
+    dt_vec = np.append(np.diff(times), times[-1]-times[-2])
     # iterate through particles
     for i, t in enumerate(times):
         
@@ -56,10 +57,10 @@ def computeLAVD(
         vort_dev_mag = np.linalg.norm(vort_dev, axis=1)
         
         # Update the intrinsic rotation angle.  
-        lavd_vec += vort_dev_mag
+        lavd_vec += vort_dev_mag * dt_vec[i]
     
     # Reshape the data to the mesh.
-    lavd_field = lavd_vec.reshape(tuple(list(mesh_shape)))/(n_times)
+    lavd_field = lavd_vec.reshape(tuple(list(mesh_shape)))
             
     # Call the function
     return lavd_field

@@ -64,7 +64,7 @@ def computeFTLE(J_array: np.ndarray, dt: float) -> np.ndarray:
                 iterate_arbitrary_dimensions(dim, d_now, index)
         else:
             _, lam, _ = np.linalg.svd(J_array[tuple(index + [...])])
-            ftle_field[tuple(index)] = 1/dt*np.log(np.max(lam))
+            ftle_field[tuple(index)] = 1/np.abs(dt)*np.log(np.max(lam))
             
     # Call the function
     iterate_arbitrary_dimensions(dim)

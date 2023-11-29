@@ -76,10 +76,10 @@ def computeLAVD(
     for i in range(n_times):
         j = i+interval
         
-        if i+j <= n_times:
-            lavd_array[:,i] = np.sum(ivd_array[:,i:i+j] * dt_vec[i:i+j], axis=1)
+        if j <= n_times:
+            lavd_array[:,i] = np.sum(ivd_array[:,i:j] * dt_vec[i:j], axis=1)
             
-    return lavd_array
+    return np.abs(lavd_array)
         
         
     
@@ -116,8 +116,8 @@ if __name__ == "__main__":
 
     # Next, we need to make a time vector
     t0 = 0      # initial time
-    t1 = 30      # final time
-    dt = 0.1    # time increment <- # For standard FTLE we will only need the first and last time, but 
+    t1 = -30      # final time
+    dt = -0.1    # time increment <- # For standard FTLE we will only need the first and last time, but 
                                     # it will be helpful when computing LAVD to have increments.
     interval = 150  # Time for computing the LAVD.
     
@@ -143,8 +143,6 @@ if __name__ == "__main__":
     fig = plt.figure()
     ax = fig.add_subplot(111)
     
-    ax.scatter(gyre.states[:,frame,0], gyre.states[:,frame,1], s=15, c='gray')  #c=lavd_array[:,frame]
-    
     # Define a window to look inside.
     win = [1.3, 0.4, 0.6, 0.4]
     def find_points_within_bounds(data, window):
@@ -157,6 +155,7 @@ if __name__ == "__main__":
     
     indices = find_points_within_bounds(gyre.states[:,frame,:].squeeze(), win)
     
+    ax.scatter(gyre.states[~indices,frame,0], gyre.states[~indices,frame,1], s=15, c='gray')  #c=lavd_array[:,frame]
     rectangle = patches.Rectangle((win[0], win[1]), win[2], win[3], edgecolor ='k', facecolor ='none')
     ax.add_patch(rectangle)
     sc = ax.scatter(gyre.states[indices,frame,0], gyre.states[indices,frame,1], 

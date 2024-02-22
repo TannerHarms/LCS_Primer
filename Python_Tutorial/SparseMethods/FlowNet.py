@@ -1,11 +1,12 @@
 
 #%%
-import os, sys, copy
+import os, sys, copy, re
 import numpy as np
 import networkx as nx
 from networkx.algorithms import community
 import sympy as sym
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from scipy.spatial import Delaunay
 from sklearn.neighbors import NearestNeighbors
 from typing import Dict, Callable, List, Union
@@ -195,10 +196,17 @@ def remove_edges_under_threshold(G, threshold):
     G.remove_edges_from(edges_to_remove)
     return G
 
+def remove_nodes_under_threshold(G, threshold):
+    # Get a list of all edges with weights below the threshold
+    nodes_to_remove = [n for n in G.nodes() if G.degree(n, weight='weight') < threshold]
+  
+    # Remove these edges from the graph
+    G.remove_nodes_from(nodes_to_remove)
+    return G
 
 def identify_communities(G):
     communities = community.greedy_modularity_communities(G, weight="weight")
-    communities = community.asyn_lpa_communities(G, weight="weight")
+    # communities = community.asyn_lpa_communities(G, weight="weight")
 
     node_color = []
     for node in G:
@@ -221,10 +229,10 @@ if __name__ == "__main__":
 
     ''' Now, we need to define the initial conditions for our integrations. We will define them on a grid for now.  '''
     # Specify the flow domain using dim[0] = x axis and dim[1] = y axis
-    domain = np.array([[0, 2],[0, 1]])
+    # domain = np.array([[0, 2],[0, 1]])
 
-    # Now, make vectors associated with each axis.
-    # n_y = 10            # number of rows
+    # # Now, make vectors associated with each axis.
+    # n_y = 25            # number of rows
     # dx = 1/n_y          # row spacing
     # x_vec = np.arange(domain[0,0],domain[0,1]+dx,dx)     # 50 columns
     # y_vec = np.arange(domain[1,0],domain[1,1]+dx,dx)     # 25 rows
@@ -237,16 +245,16 @@ if __name__ == "__main__":
     # n_particles = len(x)
     
     # # Sample particles randomly.
-    n_particles = 100
+    n_particles = 250
     initial_conditions = np.random.rand(n_particles, 2)
     initial_conditions[:,0] = initial_conditions[:,0] * 2
 
     # Next, we need to make a time vector
     t0 = 0      # initial time
-    t1 = 15      # final time
-    dt = 0.25    # time increment <- # For standard FTLE we will only need the first and last time, but 
+    t1 = 15     # final time
+    dt = 0.5    # time increment <- # For standard FTLE we will only need the first and last time, but 
                                     # it will be helpful when computing LAVD to have increments.
-    interval = 200  # Time for computing the LAVD.
+    interval = 100  # Time for computing the LAVD.
     
     time_vector = np.arange(t0,t1+dt,dt)
     '''We now need to specify the flow that the Flow object will operate on.'''
@@ -264,7 +272,7 @@ if __name__ == "__main__":
     # Generate a flow network:
     flownet = FlowNet(gyre.states, 15*dt, 
                       metric_function='kinematic_similarity',
-                      kNN = round(n_particles/10),
+                      kNN = round(n_particles/2),
                       delaunay=False)
     
     G = flownet.G
@@ -273,13 +281,20 @@ if __name__ == "__main__":
     comm_color = identify_communities(G)
     # coloring = [c for v, c in centrality.items()]
     
-    G = remove_edges_under_threshold(G, 0)#np.mean(flownet.adjacency)+2.5*np.std(flownet.adjacency))
+    all_degrees = [G.degree(n, weight='weight') for n in G.nodes()]
+    # G = remove_edges_under_threshold(G, np.mean(flownet.adjacency)+2.5*np.std(flownet.adjacency))
+    G = remove_nodes_under_threshold(G, 0.8*np.mean(all_degrees)+0*np.std(all_degrees))
+    adj = nx.adjacency_matrix(G).todense()
+    G = remove_edges_under_threshold(G, np.mean(adj)+2*np.std(adj))
     largest_cc = max(nx.connected_components(G), key=len)
     Gsub = G.subgraph(largest_cc)
     
     # Calculate the degrees of each node
+    degrees_idx = [(n, Gsub.degree(n, weight='weight')) for n in Gsub.nodes()]
     degrees = [Gsub.degree(n, weight='weight') for n in Gsub.nodes()]
-    deg_sort = sorted(degrees, reverse=True)
+    sorted_pairs = sorted(degrees_idx, key=lambda pair: pair[1], reverse=False)
+    sorted_nodes = [node for node, degree in sorted_pairs]
+    deg_sort = [degree for node, degree in sorted_pairs]
     
     plt.figure(figsize=(8,6)) 
     plt.title("Degree Distribution")
@@ -295,17 +310,78 @@ if __name__ == "__main__":
     colors = plt.cm.viridis(np.linspace(0, 1, len(degrees)))
 
     # Setting the positions of nodes and keeping it same for node and edges
-    pos = nx.spring_layout(Gsub, iterations=100, weight='weight')
+    pos = nx.spring_layout(Gsub, iterations=200, weight='weight')
     # pos = nx.spectral_layout(G, weight="weight")
 
-    # Draw the nodes, specifying the color map and the degree sequence as the node size
-    nx.draw_networkx_nodes(Gsub, pos=pos, cmap=plt.get_cmap('viridis'), 
-                        node_color=degrees, node_size=200, alpha=0.9)
+    #%%
+    # Normalize color range with Power Law (Gamma) scaling
+    gamma = 0.85
+    norm = Normalize(vmin=min(deg_sort)**gamma, vmax=max(deg_sort)**gamma)
+    colors = plt.cm.RdBu(norm(deg_sort)**gamma)
+    
+    # # Draw the nodes, specifying the color map and the degree sequence as the node size
+    # nx.draw_networkx_nodes(Gsub, pos=pos, cmap=plt.get_cmap('RdBu'),
+    #                     node_color=colors, node_size=100, alpha=0.9,
+    #                     edgecolors=[0.9, 0.9, 0.9])
 
+    # Define sizes of 5 communities
+    sz = np.random.randint(6,7)
+    sizes = np.random.randint(30,60,size=sz)
+    
+    diag = np.diag(np.random.rand(sz)*0.05 + 0.3)
+    mat = np.random.rand(sz,sz)*0.01
+    p_matrix = mat + diag
+    p_matrix = (p_matrix + p_matrix.T)/2
+    print(p_matrix)
+
+    # Use the stochastic block model to generate the graph
+    G = nx.stochastic_block_model(sizes, p_matrix)
+
+    # Get the degree for each node
+    degrees = dict(G.degree())
+
+    # Map degrees to colors
+    degree_color = [degrees[node] for node in G.nodes]
+    
+    # Normalize color range with Power Law (Gamma) scaling
+    gamma = 0.75
+    norm = Normalize(vmin=min(degree_color)**gamma, vmax=max(degree_color)**gamma)
+    colors = plt.cm.RdBu(norm(degree_color)**gamma)
+    
+    # Draw the graph
+    # Create a figure with a black background
+    plt.figure(figsize=(6, 8), facecolor='black')
+    pos = nx.spring_layout(G)  # positions for all nodes
+    nodes = nx.draw_networkx_nodes(G, pos, node_color=degree_color, cmap=plt.cm.RdBu, 
+                                   node_size=100, alpha=0.9, edgecolors=[0.9, 0.9, 0.9])
+    edges = nx.draw_networkx_edges(G, pos, edge_color=[0.8, 0.8, 0.8])
+    # labels = nx.draw_networkx_labels(G, pos)
+    ax=plt.gca()
+    ax.set_facecolor('none')
+    
+    #%%
+    
+    # Create a figure with a black background
+    plt.figure(figsize=(12, 6), facecolor='black')
+    
+    # Draw the nodes in order of their degree
+    for n, node in enumerate(sorted_nodes):
+        nx.draw_networkx_nodes(Gsub, pos,
+                            nodelist=[node],
+                            cmap=plt.get_cmap('RdBu'),
+                            node_color=[colors[n]],  # Adjust to match node's index in colors
+                            node_size=100,
+                            alpha=0.9,
+                            edgecolors=[0.9, 0.9, 0.9])
+    
     # Draw the edges, specifying the weights as the line thicknesses
-    nx.draw_networkx_edges(Gsub, pos=pos, width=weights)
+    nx.draw_networkx_edges(Gsub, pos=pos, width=weights,
+                           edge_color=[0.8, 0.8, 0.8])
 
     # Show plot
+    # Set the axes background color
+    ax = plt.gca()
+    ax.set_facecolor('none')
     plt.show()
     
     sc = SpectralClustering(

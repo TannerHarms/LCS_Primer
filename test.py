@@ -1,56 +1,47 @@
 import numpy as np
-from scipy.integrate import odeint
-from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
-# Lorenz system parameters
-sigma = 10
-rho = 28
-beta = 8/3
+# Grid size 
+N = 128
 
-def lorenz_system(current_state, t):
-    x, y, z = current_state
-    dx_dt = sigma*(y - x)
-    dy_dt = x*(rho - z) - y
-    dz_dt = x*y - beta*z
-    return [dx_dt, dy_dt, dz_dt]
+# Viscosity - You can change it to your desired values 
+viscosity = 0.000625
 
-# Initial conditions: (x, y, z)
-initial_cond1 = [1, 1, 1]   
-initial_cond2 = [0, 1, 1.5] 
-initial_states = [initial_cond1, initial_cond2]
+# Time Step 
+dt = 0.02
 
-# Time points
-t = np.linspace(0, 50, 5000)
+# Frequency
+freq = 2.0
 
-# Solve differential equation for each initial condition
-trajectories = [odeint(lorenz_system, init_state, t) for init_state in initial_states]
+x = np.linspace(0, 1, N, endpoint=False)
+y = np.linspace(0, 1, N, endpoint=False)
 
-# Create figure
-fig = plt.figure(facecolor='black')
-ax = fig.add_subplot(111, projection='3d', facecolor='black')
+Y, X = np.meshgrid(y, x)
 
-# Set color and linewidth for trajectories
-colors = ['cyan', 'yellow']
-linewidths = [1, 1.5]
+# Initial Conditions 
+omega = np.sin(freq * 2.0 * np.pi * X) * np.cos(freq * 2.0 * np.pi * Y)
 
-lines = [ax.plot([], [], [], '-', c=c, lw=lw)[0] for c, lw in zip(colors, linewidths)]
-ax.grid(False)
+# Omega in t + 1 
+omega_ = np.empty_like(omega)
 
-# Set up formatting for the movie files
-Writer = animation.writers['pillow']
-writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+f_x = np.empty_like(omega)
+f_y = np.empty_like(omega)
 
-def animate(i):
-    for line, traj in zip(lines, trajectories):
-        line.set_data(traj[:i, 0], traj[:i, 1])
-        line.set_3d_properties(traj[:i, 2])
-    return lines
+for count in range(4000):
+    # zero-padded 1st order derivative
+    f_x[:, :-1] = np.diff(omega, axis=1) / 1.
+    f_x[:, -1] = omega[:, 0] - omega[:, -1]
+    
+    f_y[:-1, :] = np.diff(omega, axis=0) / 1.
+    f_y[-1, :] = omega[0, :] - omega[-1, :]
+    
+    omega_npo = np.pad(omega, ((1, 1), (1, 1)), mode='wrap')
+    laplacian = ((np.roll(omega_npo, 1, axis=0) + np.roll(omega_npo, -1, axis=0) +
+                  np.roll(omega_npo, 1, axis=1) + np.roll(omega_npo, -1, axis=1)) -
+                 4 * omega_npo[1:-1, 1:-1]) / (1.**2)
+    
+    omega_ = omega + dt * (- (f_x * f_y) + viscosity * laplacian)
+    omega, omega_ = omega_, omega
 
-ani = animation.FuncAnimation(fig, animate, frames=len(t), interval=1)
-
-# Save the animation
-ani.save('lorenz_attractor.mp4', writer=writer)
-
-plt.show()
+plt.imshow(omega)
+plt.colorbar()

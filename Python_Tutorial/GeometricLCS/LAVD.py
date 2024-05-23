@@ -7,9 +7,11 @@ import matplotlib.patches as patches
 from scipy.integrate import odeint
 from typing import Dict, Callable, List
 
+
+
 # Compute the ftle field on arbitrary dimensions.
 def computeIVD(
-    states: np.ndarray, times: np.ndarray, gradientFunction: Callable) -> np.ndarray:
+    states: np.ndarray, times: np.ndarray, gradientFunction: Callable, return_vort=False) -> np.ndarray:
     
     # Get the shape of the data
     n_particles, n_times, dim = np.shape(states)
@@ -31,13 +33,14 @@ def computeIVD(
         for i in range(dim-1, -1, -1):
             for j in range(dim-1, -1, -1):
                 if j < i:
-                    vort[c] = velGrad[i,j] - velGrad[j,i]
+                    vort[c] = -1**(c)*(velGrad[i,j] - velGrad[j,i])
                     c += 1
         
         return vort
     
     # initialize
-    ivd_array = np.zeros((n_particles, n_times))    # LAVD
+    ivd_array = np.zeros((n_particles, n_times)) 
+    vort_array = np.zeros((n_particles, n_elem, n_times))
     vort = np.zeros((n_particles,n_elem))        # vorticity vector
     vort_dev = np.zeros((n_particles,n_elem))
     
@@ -51,11 +54,16 @@ def computeIVD(
         # Compute vorticity deviation
         avg_vort = np.mean(vort, axis=0)
         vort_dev = vort-avg_vort
-        ivd = np.linalg.norm(vort_dev, axis=1)
+        ivd = vort_dev.squeeze()
+        # ivd = np.linalg.norm(vort_dev, axis=1)
         ivd_array[:,i] = np.copy(ivd)
+        vort_array[:,:,i] = np.copy(vort)
             
-    # Call the function
-    return ivd_array
+    # Return
+    if return_vort:
+        return ivd_array, vort_array
+    else:
+        return ivd_array
 
 
 def computeLAVD(
@@ -77,11 +85,123 @@ def computeLAVD(
         j = i+interval
         
         if j <= n_times:
-            lavd_array[:,i] = np.sum(ivd_array[:,i:j] * dt_vec[i:j], axis=1)
+            lavd_array[:,i] = np.sum(np.abs(ivd_array[:,i:j]) * dt_vec[i:j], axis=1)
             
-    return np.abs(lavd_array)
+    return lavd_array
+
+
+def computeDRA(
+    ivd_array: np.ndarray, times: np.ndarray, interval: float) -> np.ndarray:
+    
+    # array sizing
+    n_particles, n_times = np.shape(ivd_array)
+    
+    # assertions
+    assert n_times == len(times)
+    assert interval <= n_times
         
+    # Get a list of the time increments.  duplicate last difference.
+    dt_vec = np.append(np.diff(times), times[-1]-times[-2])
+    
+    # Iterate through all of the ivd values to accumulate the lavd.
+    dra_array = np.nan * np.ones((n_particles, n_times))
+    for i in range(n_times):
+        j = i+interval
         
+        if j <= n_times:
+            dra_array[:,i] = np.sum(ivd_array[:,i:j] * dt_vec[i:j], axis=1)
+            
+    return dra_array
+
+
+def computeDandW(    
+    states: np.ndarray, times: np.ndarray, gradientFunction: Callable) -> np.ndarray:
+    
+    # Get the shape of the data
+    n_particles, n_times, dim = np.shape(states)
+
+    # Get the size of the output data
+    assert len(times) == n_times, "The time vector does not match the data!"
+    
+    # define a function to compute the vorticity
+    def get_D_and_W(position, time, gradientFunction):        
+        # Compute the velocity gradient at the time and position
+        velGrad = gradientFunction(position, time)
+        D = 1/2 * (velGrad + velGrad.T)
+        W = 1/2 * (velGrad - velGrad.T)
+        return D, W
+        
+    # initialize
+    D_array = np.zeros((n_particles, dim, dim, n_times)) 
+    W_array = np.zeros((n_particles, dim, dim, n_times))
+    
+    # iterate through particles
+    for i, t in enumerate(times):
+        
+        for j in range(n_particles):
+            pos = states[j,i,:].squeeze()
+            D_array[j,:,:,i], W_array[j, :, :, i] = get_D_and_W(pos, t, gradientFunction)
+            
+    # return
+    return D_array, W_array
+
+
+def computeFTQ(
+    D_array: np.ndarray, W_array: np.ndarray, times: np.ndarray, interval: float) -> np.ndarray:
+    
+    # array sizing
+    n_particles, _, _, n_times = np.shape(D_array)
+    
+    # assertions
+    assert n_times == len(times)
+    assert interval <= n_times
+        
+    # Get a list of the time increments.  duplicate last difference.
+    dt_vec = np.append(np.diff(times), times[-1]-times[-2])
+    
+    # Iterate through all of the ivd values to accumulate the lavd.
+    ftq_array = np.zeros((n_particles, n_times))
+
+    for i in range(n_times):
+        j = min(i + interval, n_times)
+
+        D = D_array[:, :, :, i:j]
+        W = W_array[:, :, :, i:j]
+        W_avg = np.mean(W_array[:,:,:,i:j], axis=0)
+
+        Dnorm = np.linalg.norm(D, axis=(1,2))
+        Wnorm = np.linalg.norm(W - W_avg, axis=(1,2))
+
+        ftq_array[:, i] = np.sum((Wnorm - Dnorm) * dt_vec[i:j], axis=-1)
+
+    return ftq_array
+
+
+def computeTISM(
+    D_array: np.ndarray, times: np.ndarray, interval: float) -> np.ndarray:
+    
+    # array sizing
+    n_particles, _, _, n_times = np.shape(D_array)
+    
+    # assertions
+    assert n_times == len(times)
+    assert interval <= n_times
+        
+    # Get a list of the time increments.  duplicate last difference.
+    dt_vec = np.append(np.diff(times), times[-1]-times[-2])
+    
+    # Iterate through all of the ivd values to accumulate the lavd.
+    tism_array = np.zeros((n_particles, n_times))
+    for i in range(n_times):
+        j = min(i + interval, n_times)
+
+        D = D_array[:, :, :, i:j]
+
+        Dnorm = np.linalg.norm(D, axis=(1,2))
+
+        tism_array[:, i] = np.sum(Dnorm * dt_vec[i:j], axis=-1)
+
+    return tism_array
     
 
 # For testing...
@@ -134,8 +254,12 @@ if __name__ == "__main__":
     gyre.integrate_trajectories()
     
     # No compute the jacobian:
-    ivd_array = computeIVD(gyre.states, gyre.time_vector, gyre.gradv_function)
-    lavd_array = computeLAVD(ivd_array, gyre.time_vector, interval)
+    # ivd_array = computeIVD(gyre.states, gyre.time_vector, gyre.gradv_function)
+    # lavd_array = computeLAVD(ivd_array, gyre.time_vector, interval)
+    
+    D_array, W_array = computeDandW(gyre.states, gyre.time_vector, gyre.gradv_function)
+    ftq_array = computeFTQ(D_array, W_array, gyre.time_vector, len(gyre.time_vector))
+    # ftq_field = ftq_array[:,0].reshape(tuple(list(np.shape(mesh)[1:])))
     
     #%%
     # Plotting a test frame
@@ -159,9 +283,9 @@ if __name__ == "__main__":
     rectangle = patches.Rectangle((win[0], win[1]), win[2], win[3], edgecolor ='k', facecolor ='none')
     ax.add_patch(rectangle)
     sc = ax.scatter(gyre.states[indices,frame,0], gyre.states[indices,frame,1], 
-               s=15, c=lavd_array[indices,frame]) 
+               s=15, c=ftq_array[indices,frame]) 
     
-    sc.set_clim([0, np.nanmax(lavd_array[:,frame])])
+    sc.set_clim([0, np.nanmax(ftq_array[:,frame])])
     
     ax.set_xlim([0,2])
     ax.set_ylim([0,1])

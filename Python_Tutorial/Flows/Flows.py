@@ -17,9 +17,12 @@ sys.path.append(os.path.join(os.getcwd(), "Flows"))
 
 # Predefined functions 
 from Gyre import *
+from BickleyJet import *
+# from ABCFlow import *
 
 predefined_function_map = {
     "Gyre" : (Gyre, Gyre_defaultParameters),
+    "BickleyJet" : (BickleyJet, BickleyJet_defaultParameters)
 }
 
 class Flow:
